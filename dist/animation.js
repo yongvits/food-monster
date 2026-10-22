@@ -2,7 +2,7 @@
 // Thirty-two baked poses per gait. Optical-flow in-betweens are prepared at
 // build time, so gameplay only draws sprites; no image processing on the phone.
 const animationSheets=Array.from({length:5},(_,id)=>{
-  const image=new Image();image.src=`assets/character-${id}-smooth.webp`;
+  const image=new Image();image.src=`assets/character-${id}-stride.webp`;
   return {image,ready:false};
 });
 function prepareAnimation(sheet){
@@ -22,9 +22,10 @@ function poseSamples(mode,phase,vy=0){
 }
 
 function smoothFrame(mode,phase,vy=0){
-  const base=locomotionFrame(mode,phase,vy);
-  const quarter=(mode==='walk'||mode==='run')?Math.floor((positivePhase(phase)%1)*4):0;
-  return base*4+quarter;
+  if(mode==='idle')return 0;
+  if(mode==='jump')return vy<0?40:56;
+  // 32 baked frames per full alternating gait, no repeated same-foot half cycle.
+  return (mode==='run'?32:0)+Math.floor(positivePhase(phase)*4);
 }
 const poseSurface=document.createElement('canvas');poseSurface.width=128;poseSurface.height=128;
 const poseContext=poseSurface.getContext('2d');
