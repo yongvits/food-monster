@@ -1,8 +1,7 @@
  'use strict';
-// Thirty-two baked poses per gait. Optical-flow in-betweens are prepared at
-// build time, so gameplay only draws sprites; no image processing on the phone.
+// Discrete, complete poses: no optical-flow morphs or cross-faded limbs.
 const animationSheets=Array.from({length:5},(_,id)=>{
-  const image=new Image();image.src=`assets/character-${id}-stride.webp`;
+  const image=new Image();image.src=`assets/character-${id}-clean.webp`;
   return {image,ready:false};
 });
 function prepareAnimation(sheet){
@@ -11,44 +10,27 @@ function prepareAnimation(sheet){
 }
 function positivePhase(phase){return ((phase%8)+8)%8;}
 function locomotionFrame(mode,phase,vy=0){
-  if(mode==='jump')return vy<0?11:14;
-  if(mode==='idle')return 0;
+  if(mode==='jump')return vy<0?11:15;
+  if(mode==='idle')return 2;
   return (mode==='run'?8:0)+Math.floor(positivePhase(phase));
 }
-function poseSamples(mode,phase,vy=0){
-  if(mode==='jump'||mode==='idle')return [{index:locomotionFrame(mode,phase,vy),weight:1}];
-  const p=positivePhase(phase),base=Math.floor(p),fraction=p-base,offset=mode==='run'?8:0;
-  return [{index:offset+base,weight:1-fraction},{index:offset+(base+1)%8,weight:fraction}];
-}
-
-function smoothFrame(mode,phase,vy=0){
-  if(mode==='idle')return 0;
-  if(mode==='jump')return vy<0?40:56;
-  // 32 baked frames per full alternating gait, no repeated same-foot half cycle.
-  return (mode==='run'?32:0)+Math.floor(positivePhase(phase)*4);
-}
-const poseSurface=document.createElement('canvas');poseSurface.width=128;poseSurface.height=128;
-const poseContext=poseSurface.getContext('2d');
-function drawLocomotion(c,id,center,feet,height,mode,phase,face=1,vy=0,transition=null){
+function drawLocomotion(c,id,center,feet,height,mode,phase,face=1,vy=0){
   const sheet=animationSheets[id];if(!sheet?.ready)return false;
-  const frame=smoothFrame(mode,phase,vy),scale=height/104;
-  c.save();c.translate(center,feet);c.scale(face,1);c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';
-  if(transition&&transition.amount<1){
-    const previous=smoothFrame(transition.mode,transition.phase,transition.vy);
-    const t=transition.amount*transition.amount*(3-2*transition.amount);
-    poseContext.clearRect(0,0,128,128);poseContext.globalCompositeOperation='lighter';
-    poseContext.globalAlpha=1-t;poseContext.drawImage(sheet.image,(previous%8)*128,Math.floor(previous/8)*128,128,128,0,0,128,128);
-    poseContext.globalAlpha=t;poseContext.drawImage(sheet.image,(frame%8)*128,Math.floor(frame/8)*128,128,128,0,0,128,128);
-    poseContext.globalAlpha=1;poseContext.globalCompositeOperation='source-over';
-    c.drawImage(poseSurface,-64*scale,-120*scale,128*scale,128*scale);
-  }else c.drawImage(sheet.image,(frame%8)*128,Math.floor(frame/8)*128,128,128,-64*scale,-120*scale,128*scale,128*scale);
+  const frame=locomotionFrame(mode,phase,vy),scale=height/208;
+  c.save();c.translate(center,feet);c.scale(face,1);
+  c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';
+  c.drawImage(sheet.image,(frame%4)*256,Math.floor(frame/4)*256,256,256,-128*scale,-240*scale,256*scale,256*scale);
   c.restore();return true;
 }
 function updatePose(actor,mode,dt,rate){
-  if(actor.mode!==mode){actor.transition={mode:actor.mode,phase:actor.phase,vy:actor.previousPoseVy??actor.vy,amount:0};actor.mode=mode;}
-  actor.cadence+=(rate-(actor.cadence||0))*(1-Math.exp(-dt*14));actor.phase+=actor.cadence*dt;
-  if(actor.transition){actor.transition.amount=Math.min(1,actor.transition.amount+dt/.10);if(actor.transition.amount===1)actor.transition=null;}
-  actor.previousPoseVy=actor.vy;
+  // Retain stride phase between walk/run so the planted foot does not swap.
+  if(actor.mode!==mode){
+    if(actor.mode==='idle'&&(mode==='walk'||mode==='run'))actor.phase=0;
+    actor.mode=mode;
+  }
+  actor.cadence+=(rate-(actor.cadence||0))*(1-Math.exp(-dt*14));
+  if(mode==='walk'||mode==='run')actor.phase=(actor.phase+actor.cadence*dt)%8;
+  actor.transition=null;actor.previousPoseVy=actor.vy;
 }
 
 const sceneArt=Array.from({length:5},()=>new Image()),depthArt=new Image(),extraDepthArt=new Image();
